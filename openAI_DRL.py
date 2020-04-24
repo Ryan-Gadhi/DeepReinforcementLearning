@@ -7,44 +7,53 @@ from statistics import mean, median
 
 # for info about this project http://gym.openai.com/docs/
 
-gameNames = ['CartPole-v0', 'MountainCar-v0', 'MsPacman-v0']
-env = gym.make(gameNames[0])
-
 # The process gets started by calling reset(), which returns an initial observation
 
-min_allowed_score = 55  # to save to data
+
 num_games = 9000  # to play
 
 
 def game_info():
     print('\nis action space:', env.action_space)
+    print('\nis action count:', env.action_space.n)
     print('\nis observation space:', env.observation_space)
-    print('\nis upper limit: ', env.observation_space.high)
-    print('\nis upper limit: ', env.observation_space.low)
+    print('\nis upper obs limit: ', env.observation_space.high)
+    print('\nis lower obs limit: ', env.observation_space.low)
 
 
-def initial_play():
+def initial_play(verbose=False):
     for episode in range(num_games):
         env.reset()
         for i in range(1000):
             env.render()
-            observation, reward, done, info = env.step(env.action_space.sample())
+            action = env.action_space.sample()
+            observation, reward, done, info = env.step(action)
+            if verbose:
+                print('action:', action)
+                print('observation:', reward)
+                print('done:', done)
+                print('info:', info)
+                print("- - - - - - - - -")
+
             if done:
-                print(' - Game Num ', episode, ' Finished after ', i, 'actions ')
+                if verbose:
+                    print(' - Game Num ', episode, ' Finished after ', i, 'actions ')
                 break
     env.close()
 
 
-def collect_good_data(show_info=True, save_data=False):
+def collect_good_data(verbose=True, save_data=False):
     games_data = []
+    max_steps = 1000  # max num of steps the agent can take in the env
+    min_allowed_score = -1  # to save to data
 
     for game in range(num_games):
         env.reset()
         game_data = []
-        trail_reached = 0  # number of successful steps taken
+        step_reached = 0  # number of successful steps taken
         previous_observation = []
-        for trial in range(250):
-            trail_reached = trial
+        for step in range(max_steps):
+            step_reached = step
             action = env.action_space.sample()
             observation, reward, done, info = env.step(action)
 
@@ -53,34 +62,37 @@ def collect_good_data(show_info=True, save_data=False):
 
             if done:  # i.e. lost the game
                 break
-            # one trial finished
+            # one step finished
             previous_observation = observation
 
         # one game finished
-        games_data.append([trail_reached, game_data])
+        games_data.append([step_reached, game_data])
 
     # all games finished
     good_data = []
-    trails_record = []
-    good_trails_record = []
+    min_allowed_score = sorted(list(i[0] for i in games_data))[int(len(games_data) * 0.95)]
+    print(min_allowed_score, ': min_allowed_score')
+    steps_record = []
+    good_steps_record = []
     for game_data_with_trail_reached in games_data:
-        trails_record.append(game_data_with_trail_reached[0])
+        steps_record.append(game_data_with_trail_reached[0])
         if game_data_with_trail_reached[0] >= min_allowed_score:
-            good_trails_record.append(game_data_with_trail_reached[0])
+            good_steps_record.append(game_data_with_trail_reached[0])
             for action_observation_pair in game_data_with_trail_reached[1]:
                 good_data.append(action_observation_pair)
-    if show_info:
-        print(mean(trails_record), ' is the mean of all games, played: ', len(trails_record))
-        print(mean(good_trails_record), ' is the mean of the good trails, played: ', len(good_trails_record))
+    if verbose:
+        print(mean(steps_record), ' is the mean of all games, played: ', len(steps_record))
+        print(mean(good_steps_record), ' is the mean of the good trails, played: ', len(good_steps_record))
 
     if save_data:
         np_array_to_save = np.array(good_data)
         np.save('training_data.npy', np_array_to_save)
 
-    return good_data
+    num_classes = env.action_space.n
+    return good_data, num_classes
 
 
-def create_dnn_model(input_dimension, batch_size):
+def create_dnn_model(input_dimension, num_classes):
     model = Sequential()
     # 1
     model.add(Dense(128, input_shape=(input_dimension, ), activation='relu'))
@@ -99,7 +111,7 @@ def create_dnn_model(input_dimension, batch_size):
     model.add(Dropout(0.2))
 
     # output
-    model.add(Dense(2, activation='softmax'))
+    model.add(Dense(num_classes, activation='softmax'))
 
     # compiling the model
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
@@ -107,16 +119,15 @@ def create_dnn_model(input_dimension, batch_size):
     return model
 
 
-def train_dnn_model(model, training_data, labels, epochs, batch_size, verbose):
+def train_dnn_model(model, training_data, labels, epochs, batch_size, verbose, num_classes):
     # Convert labels to categorical one-hot encoding
-    one_hot_labels = to_categorical(labels, num_classes=2)
+    one_hot_labels = to_categorical(labels, num_classes=num_classes)
     model.fit(training_data, one_hot_labels, epochs=epochs, batch_size=batch_size, verbose = verbose)
 
 
-def train_game_model():
-    training_data = np.array(collect_good_data())
-    # train_x = np.array(data[1] for data in training_data)
-    # train_y = np.array(data[0] for data in training_data)
+def train_model_by_game_data():
+    training_data, num_classes = np.array(collect_good_data())
+
     train_x = []
     train_y = []
     for data in training_data:
@@ -129,8 +140,8 @@ def train_game_model():
     batch_size = 512
     input_dimension = len(train_x[0])
     print(input_dimension, ' : input_dimension')
-    model = create_dnn_model(input_dimension, batch_size)
-    train_dnn_model(model, train_x, train_y, 10, batch_size, True)
+    model = create_dnn_model(input_dimension, num_classes)
+    train_dnn_model(model, train_x, train_y, 10, batch_size, True, num_classes)
     return model
 
 
@@ -159,10 +170,11 @@ def play_using_model(model):
             # one trial finished
 
 
-model = train_game_model()
-play_using_model(model)
-#   we have:   observation: [x,x,x,x] we took action: 0 (save what we did,
-#   and see if we get the min requirements)
-#   we can save (observation, taken action)
-#   or
-#   we can save (previous_observation, taken action), in this code we chose the later
+if __name__ == "__main__":
+    gameNames = ['CartPole-v0', 'MountainCar-v0', 'MsPacman-v0']
+    env = gym.make(gameNames[0])
+
+    # game_info()
+    # initial_play()
+    model = train_model_by_game_data()
+    play_using_model(model)
