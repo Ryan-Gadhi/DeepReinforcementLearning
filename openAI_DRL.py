@@ -113,7 +113,7 @@ def train_dnn_model(model, training_data, labels, epochs, batch_size, verbose):
     model.fit(training_data, one_hot_labels, epochs=epochs, batch_size=batch_size, verbose = verbose)
 
 
-def train_game():
+def train_game_model():
     training_data = np.array(collect_good_data())
     # train_x = np.array(data[1] for data in training_data)
     # train_y = np.array(data[0] for data in training_data)
@@ -131,8 +131,36 @@ def train_game():
     print(input_dimension, ' : input_dimension')
     model = create_dnn_model(input_dimension, batch_size)
     train_dnn_model(model, train_x, train_y, 10, batch_size, True)
+    return model
 
-train_game()
+
+def play_using_model(model):
+    games_data = []
+
+    for game in range(num_games):
+        env.reset()
+        game_data = []
+        previous_observation = []
+
+        for trial in range(250):
+            env.render()
+            if previous_observation != []:
+                input = np.array(previous_observation).reshape((1, -1))
+                prediction = model.predict(input)
+                action = np.argmax(prediction)
+            else:
+                action = env.action_space.sample()
+
+            observation, reward, done, info = env.step(action)
+            previous_observation = observation
+
+            if done:  # i.e. lost the game
+                break
+            # one trial finished
+
+
+model = train_game_model()
+play_using_model(model)
 #   we have:   observation: [x,x,x,x] we took action: 0 (save what we did,
 #   and see if we get the min requirements)
 #   we can save (observation, taken action)
