@@ -4,13 +4,14 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation, Dropout
 from keras.utils import to_categorical
 from statistics import mean, median
+import sys
 
 # for info about this project http://gym.openai.com/docs/
 
 # The process gets started by calling reset(), which returns an initial observation
 
 
-num_games = 9000  # to play
+num_games = 1000  # to play
 
 
 def game_info():
@@ -42,21 +43,63 @@ def initial_play(verbose=False):
     env.close()
 
 
+def keyboard_play(verbose=False):
+    for episode in range(num_games):
+        env.reset()
+        for i in range(1000):
+            env.render()
+            action = 0
+            try:
+                action = int(input('action:')[0])
+
+            except ValueError:
+                print('not num')
+
+            observation, reward, done, info = env.step(action)
+            if verbose:
+                print('action:', action)
+                print('observation:', observation)
+                print('done:', done)
+                print('reward:',reward)
+                print('info:', info)
+                print('round:', i)
+                print("- - - - - - - - -")
+
+            if done:
+                if verbose:
+                    print(' - Game Num ', episode, ' Finished after ', i, 'actions ')
+                break
+    env.close()
+
+
 def collect_good_data(verbose=True, save_data=False):
+    print('in collect data func')
     games_data = []
-    max_steps = 1000  # max num of steps the agent can take in the env
+    max_steps = 250  # max num of steps the agent can take in the env
     min_allowed_score = -1  # to save to data
 
     for game in range(num_games):
+        sys.stdout.write('\r')
+        # the exact output you're looking for:
+        sys.stdout.write('in game num: %d' % (game))
+        sys.stdout.flush()
+
         env.reset()
         game_data = []
-        step_reached = 0  # number of successful steps taken
+        reward_collected = 0  # number of successful steps taken
         previous_observation = []
         for step in range(max_steps):
-            step_reached = step
             action = env.action_space.sample()
             observation, reward, done, info = env.step(action)
+            # reward_collected += reward
+            reward_collected += step
 
+            # print('reward' , reward)
+            # print('info', info)
+            # print('action', action)
+            # print('obs', observation)
+            # print(step)
+            # env.render()
             if previous_observation != []:
                 game_data.append([action, observation])
 
@@ -66,12 +109,13 @@ def collect_good_data(verbose=True, save_data=False):
             previous_observation = observation
 
         # one game finished
-        games_data.append([step_reached, game_data])
+        games_data.append([reward_collected, game_data])
 
     # all games finished
     good_data = []
     min_allowed_score = sorted(list(i[0] for i in games_data))[int(len(games_data) * 0.95)]
-    print(min_allowed_score, ': min_allowed_score')
+    print(list(i[0] for i in games_data))
+    # print(min_allowed_score, ': min_allowed_score')
     steps_record = []
     good_steps_record = []
     for game_data_with_trail_reached in games_data:
@@ -95,20 +139,7 @@ def collect_good_data(verbose=True, save_data=False):
 def create_dnn_model(input_dimension, num_classes):
     model = Sequential()
     # 1
-    model.add(Dense(128, input_shape=(input_dimension, ), activation='relu'))
-    model.add(Dropout(0.2))
-    # 2
-    model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.2))
-    # 3
-    model.add(Dense(512, activation='relu'))
-    model.add(Dropout(0.2))
-    # 4
-    model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.2))
-    # 5
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.2))
+    model.add(Dense(1, input_shape=(input_dimension, ), activation='relu'))
 
     # output
     model.add(Dense(num_classes, activation='softmax'))
@@ -139,7 +170,6 @@ def train_model_by_game_data():
 
     batch_size = 512
     input_dimension = len(train_x[0])
-    print(input_dimension, ' : input_dimension')
     model = create_dnn_model(input_dimension, num_classes)
     train_dnn_model(model, train_x, train_y, 10, batch_size, True, num_classes)
     return model
@@ -173,8 +203,10 @@ def play_using_model(model):
 if __name__ == "__main__":
     gameNames = ['CartPole-v0', 'MountainCar-v0', 'MsPacman-v0']
     env = gym.make(gameNames[0])
-
+    # wrong metric for measuring good action. steps are for CartPole-v0 not for MountainCar-v0
     # game_info()
     # initial_play()
+
     model = train_model_by_game_data()
     play_using_model(model)
+    # keyboard_play(True)
